@@ -98,10 +98,23 @@ CFG = {
     "cooldown_velas_5m": 40,       # no repetir senal misma direccion antes de esto
 
     # -------- ENTRADA / SALIDA (EXACTO al backtest validado) --------
-    "tp_puntos": 30,
-    "sl_puntos": 12,
+    "tp_puntos": 50,
+    "sl_puntos": 30,
     "limite_minutos": 15,          # timeout: cierra a mercado si no toco TP ni SL
-    "contratos_fijos": 4,           # SIN Kelly -- tamano fijo, siempre 4 micros de MNQ
+    "contratos_fijos": 2,           # SIN Kelly -- tamano fijo, siempre 2 micros de MNQ
+                                     # (actualizado tras validacion out-of-sample de la
+                                     # rejilla SL ancho, Kelly 12 continuacion: TP=50/SL=30
+                                     # supera a TP=30/SL=12 en PF, PnL/trade y control
+                                     # emparejado -- ver rejilla_sl_ancho_n40.py,
+                                     # validacion_partida_sl_ancho.py, y
+                                     # analisis_drawdown_mnq_sl_ancho.py para el riesgo
+                                     # real en MNQ con este TP/SL: drawdown max -$526.50,
+                                     # peor dia -$336, peor racha -$415 con 2 contratos --
+                                     # muy por debajo del limite de cuenta de $2,000.
+                                     # NQ mini NO se actualizo -- con 1 solo contrato (el
+                                     # minimo posible en NQ) este TP/SL da drawdown
+                                     # -$2,307.50, que rompe el mismo limite. Motor NQ
+                                     # se queda en TP=30/SL=12 sin cambios.
 
     # -------- Cuenta y riesgo --------
     "capital": 50_000,
