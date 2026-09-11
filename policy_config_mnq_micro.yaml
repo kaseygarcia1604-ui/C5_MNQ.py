@@ -1,4 +1,4 @@
-# policy_config_mnq_micro.yaml
+# policy_config_nq_mini.yaml
 # RiskAval -- calibrado para MOTOR_C5_MNQ_MICRO (ruptura N40, MNQ, 4 contratos fijos).
 #
 # Segunda linea de defensa detras de Cerebro._breakers() -- deja el
@@ -14,14 +14,14 @@ rules:
   # motor_c5_nq_mini.py -- si cambian ahi, actualizar aqui tambien.
   max_daily_loss: -800
   max_weekly_loss: -2000
-  # Espejo de CFG["contratos_fijos"]=4 -- MNQ micro opera SIEMPRE 4
-  # contratos, sin escalada. Distinto del motor NQ mini (1).
-  max_contracts: 4
+  # Espejo de CFG["contratos_fijos"]=2 -- MNQ micro opera SIEMPRE 2
+  # contratos, sin escalada (actualizado tras validar TP=50/SL=30 --
+  # ver motor_c5_mnq_micro.py para el detalle de la validacion).
+  max_contracts: 2
 
-  # Riesgo real en USD por contrato: sl_puntos(12) * usd_punto(2) = 24.
-  # Reemplaza el "400" heredado del motor viejo (que asumia riesgo
-  # variable por ATR) -- en C5 el riesgo por contrato es fijo y exacto.
-  risk_per_contract_usd: 24
+  # Riesgo real en USD por contrato: sl_puntos(30) * usd_punto(2) = 60.
+  # Actualizado junto con TP/SL (antes: sl=12 -> 24).
+  risk_per_contract_usd: 60
 
   # Sin restriccion horaria -- RUPTURA_N40 se valido explicitamente sin
   # filtro de hora (24h menos mantenimiento CME, que Cerebro ya maneja
