@@ -7,17 +7,27 @@ Estrategia validada en Kelly 12 (backtest sobre 397 dias, ene-2025 a jul-2026):
   - Ruptura del rango de 40 velas de 5min (~200min de historia), ambas
     direcciones (alcista y bajista)
   - Entrada a mercado en la vela de 1min siguiente al cierre de la
-    ruptura, TP=30pts / SL=12pts (RR~2.5:1), timeout 15min
-  - n=1,826 eventos, WR=68.7%, PF=4.68, control emparejado +$183/trade
-    (IC95% [$169.87,$198.59], 100% de 200 repeticiones a favor)
+    ruptura, TP=50pts / SL=30pts (RR~1.67:1), timeout 15min -- version
+    final tras la rejilla de SL ancho (supera a la version original
+    TP=30/SL=12 en PF, PnL/trade y control emparejado)
+  - n=1,756 eventos limpios (excluyendo +-1 dia de cada rollover de
+    contrato detectado en el histórico), WR=74.03%, PF=5.14, prom=$323.15
+    /trade, control emparejado $226.77/trade (IC95% [$205.99,$248.56],
+    100% de 200 repeticiones a favor) -- el edge se sostiene practicamente
+    identico con o sin los eventos de rollover (ver
+    localizar_rollovers.py y validacion con/sin rollovers)
   - Validacion out-of-sample (mitad A elige, mitad B confirma sin
-    reoptimizar): $230.69/trade vs $228.62/trade -- practicamente identico
-  - Desglose direccional: bajista PF=5.51 mas fuerte que alcista PF=4.03,
-    en las tres particiones -- descarta que el edge sea el drift alcista
-    estructural de NQ en este periodo (la misma trampa que invalido ORB,
-    el cruce de apertura, y varios otros candidatos en Kelly 11)
+    reoptimizar): $302.70/trade (mitad A) vs $343.28/trade (mitad B) --
+    sin degradacion fuera de muestra
+  - Desglose direccional (version original TP=30/SL=12): bajista PF=5.51
+    mas fuerte que alcista PF=4.03, en las tres particiones -- descarta
+    que el edge sea el drift alcista estructural de NQ/MNQ en este
+    periodo (la misma trampa que invalido ORB, el cruce de apertura, y
+    varios otros candidatos en Kelly 11)
 
-Ver motor_c5_ruptura_n40_spec.md para la tabla completa de numeros.
+Ver motor_c5_ruptura_n40_spec.md, rejilla_sl_ancho_n40.py,
+validacion_partida_sl_ancho.py y localizar_rollovers.py para el detalle
+completo de cada validacion.
 
 DIFERENCIAS DELIBERADAS respecto al motor anterior (V7_C1, Senal C + F):
 esta es una estrategia distinta, mas simple, y se le quito TODO lo que no
@@ -44,24 +54,22 @@ productor-consumidor del Feed, y los 3 fixes criticos de sincronizacion
 con el broker (exit->flat, actualizar_stop real, _cerrar_total que no
 marca cerrado si el broker rechaza).
 
-TAMANO FIJO, SIN KELLY: replica exacto lo que se valido en backtest (1
-contrato equivalente todo el tiempo, sin escalada). El
-AuthorityCalibrator se sigue construyendo y pasando al PolicyEngine
+TAMANO FIJO, SIN KELLY: replica exacto lo que se valido en backtest.
+El AuthorityCalibrator se sigue construyendo y pasando al PolicyEngine
 (RiskAval sigue evaluando cada entrada como segunda linea de defensa),
-pero el SIZING en si ya no depende de el -- contratos_fijos=1 siempre.
-Esta es la variante NQ MINI (1 contrato de NQ, riesgo real $240/trade
-con SL=12pts). Existe una variante hermana MNQ MICRO (4 contratos de
-MNQ, riesgo real $96/trade) corriendo en paralelo, en un Postgres y
-proceso de Railway separados, para comparar el desempeno de cada una
-en shadow antes de decidir cual llevar a real.
+pero el SIZING en si ya no depende de el -- contratos_fijos=5 siempre.
+Esta ES la variante MNQ MICRO (5 contratos de MNQ, riesgo real
+$300/trade con SL=30pts -- ver CFG["contratos_fijos"] para el historial
+de escalado 2->5 y el perfil de riesgo medido a cada tamano). Existe una
+variante hermana NQ MINI (1 contrato de NQ, TP=30/SL=12, riesgo real
+$240/trade) corriendo en paralelo, en un Postgres y proceso de Railway
+separados.
 
-INSTRUMENTO: MNQ (symbol_exec="MNQ1!", usd_punto=2.0), 4 contratos
-fijos -- variante de menor riesgo por trade ($96 vs $240 en NQ mini),
-PF validado 3.24 (mas debil que NQ pero tambien positivo y confirmado).
-spread_puntos_ny=1.5 y spread_puntos_overnight=3.5 son los valores
-reales de MNQ usados en el motor V7_C1 y en la validacion de Kelly 12
-(no los mismos puntos que NQ -- MNQ cotiza el spread distinto en
-puntos aunque comparte underlying).
+INSTRUMENTO: MNQ (symbol_exec="MNQ1!", usd_punto=2.0), 5 contratos
+fijos. spread_puntos_ny=1.5 y spread_puntos_overnight=3.5 son los
+valores reales de MNQ usados en el motor V7_C1 y en la validacion de
+Kelly 12 (no los mismos puntos que NQ -- MNQ cotiza el spread distinto
+en puntos aunque comparte underlying).
 
 Variables de entorno: DATABASE_URL, DATABENTO_API_KEY, PICKMYTRADE_WEBHOOK,
                       PICKMYTRADE_TOKEN, PICKMYTRADE_ACCOUNT, MODO_SHADOW,
@@ -86,7 +94,7 @@ from authority_calibrator import AuthorityCalibrator
 # CONFIG -- unicamente los parametros de RUPTURA_N40 validado
 # ============================================================
 CFG = {
-    # -------- INSTRUMENTO: MNQ -- variante hermana de menor riesgo/trade (PF=3.24) --------
+    # -------- INSTRUMENTO: MNQ --------
     "symbol_db": "MNQ.c.0",       # simbolo continuo para Databento
     "symbol_exec": "MNQ1!",       # simbolo de ejecucion en PickMyTrade/Tradovate
     "dataset": "GLBX.MDP3",
@@ -101,29 +109,34 @@ CFG = {
     "tp_puntos": 50,
     "sl_puntos": 30,
     "limite_minutos": 15,          # timeout: cierra a mercado si no toco TP ni SL
-    "contratos_fijos": 2,           # SIN Kelly -- tamano fijo, siempre 2 micros de MNQ
-                                     # (actualizado tras validacion out-of-sample de la
-                                     # rejilla SL ancho, Kelly 12 continuacion: TP=50/SL=30
-                                     # supera a TP=30/SL=12 en PF, PnL/trade y control
-                                     # emparejado -- ver rejilla_sl_ancho_n40.py,
-                                     # validacion_partida_sl_ancho.py, y
-                                     # analisis_drawdown_mnq_sl_ancho.py para el riesgo
-                                     # real en MNQ con este TP/SL: drawdown max -$526.50,
-                                     # peor dia -$336, peor racha -$415 con 2 contratos --
-                                     # muy por debajo del limite de cuenta de $2,000.
-                                     # NQ mini NO se actualizo -- con 1 solo contrato (el
-                                     # minimo posible en NQ) este TP/SL da drawdown
-                                     # -$2,307.50, que rompe el mismo limite. Motor NQ
-                                     # se queda en TP=30/SL=12 sin cambios.
+    "contratos_fijos": 5,           # SIN Kelly -- tamano fijo, siempre 5 micros de MNQ
+                                     # Historial de escalado (riesgo real medido con
+                                     # analisis_drawdown_mnq_sl_ancho.py, TP=50/SL=30):
+                                     #   2 contratos: drawdown max -$526.50, peor dia
+                                     #     -$336, peor racha -$415
+                                     #   4 contratos: drawdown max -$1,053, peor dia
+                                     #     -$672, peor racha -$830
+                                     #   5 contratos: drawdown max -$1,316.25, peor dia
+                                     #     -$840 (2026-06-17), peor racha -$1,038
+                                     # El peor dia a 5 contratos (-$840) superaba el
+                                     # breaker diario que estaba en $800 -- por eso
+                                     # perdida_max_dia se subio a $1,000 junto con este
+                                     # cambio, para que el breaker vuelva a tener margen
+                                     # real sobre el peor escenario ya visto en backtest.
+                                     # NQ mini NO se actualizo a este TP/SL -- con 1 solo
+                                     # contrato (el minimo posible en NQ) da drawdown
+                                     # -$2,307.50, que rompe el limite de cuenta. Motor
+                                     # NQ se queda en TP=30/SL=12 sin cambios.
 
     # -------- Cuenta y riesgo --------
     "capital": 50_000,
     "riesgo_trade": 400,
     "riesgo_minimo_dolares": 400,
-    "perdida_max_dia": 800,
+    "perdida_max_dia": 1000,        # subido de 800 -> 1000 junto con el escalado a 5
+                                     # contratos (ver nota en contratos_fijos arriba)
     "perdida_max_sem": 2000,
 
-    # -------- Kelly dinamico -- ver ADVERTENCIA en el docstring --------
+    # -------- Kelly dinamico (informativo -- NO dimensiona el sizing real) --------
     "kelly_fraccion": 0.50,
     "kelly_min_trades": 30,
     "kelly_ventana": 50,
