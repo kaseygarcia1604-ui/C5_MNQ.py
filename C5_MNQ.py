@@ -551,30 +551,42 @@ class Cerebro:
             return
 
     def _hueco_es_esperado(self, ts_antes: pd.Timestamp, ts_despues: pd.Timestamp) -> bool:
-        """FIX (sep 2026): distingue un hueco de tiempo NORMAL (cierre de
-        fin de semana CME, o el mantenimiento diario 17:00-18:00 NY) de
-        una caida real de feed en horario de mercado. Los cierres
-        normales no deben bloquear la deteccion de rupturas -- solo las
-        caidas de feed reales."""
-        antes_ny = ts_antes.tz_convert(NY)
-        despues_ny = ts_despues.tz_convert(NY)
+        """Distingue un cierre NORMAL de CME (diario 17:00-18:00 NY, o
+        fin de semana viernes 17:00 -> domingo 18:00) de una caida real
+        de feed.
 
-        # Cierre de fin de semana: viernes desde CFG["mantenimiento_ini"]
-        # (17:00 NY) hasta la reapertura del domingo. Se considera
-        # esperado si el hueco arranca un viernes en o despues de esa
-        # hora, y termina un domingo (o mas tarde, si el mercado tardo en
-        # arrancar) antes de CFG["hora_ini"].
-        if antes_ny.weekday() == 4 and antes_ny.time() >= CFG["mantenimiento_ini"]:
-            if despues_ny.weekday() == 6 or despues_ny > antes_ny + timedelta(days=1):
-                return True
+        FIX (oct 2026):
+          1. Las velas se etiquetan por su INICIO: la ultima vela antes
+             del cierre es 16:55, que termina a las 17:00. Se compara el
+             FIN de la vela, no su inicio (el bug bloqueaba ~200 min de
+             rupturas tras cada reapertura).
+          2. Tolerancia: si la primera vela tras la reapertura llega a
+             las 18:05 o 18:10 (sin trades en el primer bloque), sigue
+             siendo un cierre normal.
+          3. Horas construidas por fecha en NY, no sumando horas, para
+             que los cambios de horario (marzo/noviembre) no lo rompan."""
+        tf = timedelta(minutes=CFG["tf_senal_min"])
+        tol = tf * 3
+        fin_antes = ts_antes.tz_convert("America/New_York") + tf
+        despues = ts_despues.tz_convert("America/New_York")
 
-        # Mantenimiento diario normal (17:00-18:00 NY) -- ya excluido de
-        # la evaluacion en otras partes del motor, pero si aparece como
-        # hueco en la ventana, tambien es esperado, no una caida.
-        if (antes_ny.time() >= CFG["mantenimiento_ini"] and
-                despues_ny.time() <= CFG["mantenimiento_fin"] and
-                despues_ny.date() == antes_ny.date()):
+        def _ny(fecha, hora):
+            return pd.Timestamp(datetime.combine(fecha, hora)).tz_localize("America/New_York")
+
+        cierre = _ny(fin_antes.date(), CFG["mantenimiento_ini"])          # 17:00 de ese dia
+        if not (cierre - tol <= fin_antes <= cierre):
+            return False
+
+        # Cierre diario (lun-jue): reabre 18:00 el mismo dia
+        reapertura = _ny(fin_antes.date(), CFG["mantenimiento_fin"])
+        if reapertura <= despues <= reapertura + tol:
             return True
+
+        # Cierre semanal: viernes 17:00 -> domingo 18:00
+        if fin_antes.weekday() == 4:
+            reap_dom = _ny(fin_antes.date() + timedelta(days=2), CFG["mantenimiento_fin"])
+            if reap_dom <= despues <= reap_dom + tol:
+                return True
 
         return False
 
